@@ -166,9 +166,7 @@ def write_section_page(chap_num: int, sec: dict):
     url = sec.get("url")
     gh = gh_user_repo(url) if url else None
 
-    # Always give the page a stable, numbered title so the sidebar shows:
-    #   01. ...
-    #   02. ...
+    # Used for sidebar titles (explicit in toctree), not printed above README
     page_title = f"{sec['no']:02d}. {sec['title']}"
 
     if not gh:
@@ -184,7 +182,7 @@ def write_section_page(chap_num: int, sec: dict):
         if url:
             lines += [f"{url}", ""]
         out.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
-        return out
+        return {"path": out, "title": page_title}
 
     user, repo = gh
 
@@ -220,16 +218,16 @@ def write_section_page(chap_num: int, sec: dict):
         if url:
             lines += [f"{url}", ""]
         out.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
-        return out
+        return {"path": out, "title": page_title}
 
-    # Keep README content unchanged, but add a stable numbered title ABOVE it
-    # so Sphinx can show subsection numbering in the left sidebar.
+    # ✅ FIX: Do NOT add an extra title above the imported README.
+    # The page should start from the README.md title onward.
     imported = rewrite_images_to_raw(imported, user=user, repo=repo, branch=branch_used or "main")
-    out.write_text((f"# {page_title}\n\n" + imported.strip() + "\n"), encoding="utf-8")
-    return out
+    out.write_text((imported.strip() + "\n"), encoding="utf-8")
+    return {"path": out, "title": page_title}
 
 
-def write_chapter_index(chap_num: int, chap_title: str, section_pages):
+def write_chapter_index(chap_num: int, chap_title: str, section_items):
     chap_folder = DOCS / f"chapter-{chap_num:02d}"
     chap_folder.mkdir(parents=True, exist_ok=True)
     index = chap_folder / "index.md"
@@ -237,17 +235,14 @@ def write_chapter_index(chap_num: int, chap_title: str, section_pages):
     # ✅ toctree paths must be RELATIVE to docs/chapter-XX/index.md
     # Section pages are under docs/sections/... so we need "../sections/..."
     rels = []
-    for p in section_pages:
-        rel_from_docs = p.relative_to(DOCS).with_suffix("").as_posix()  # sections/chapter-XX/...
-        # Use explicit titles so the left sidebar shows 01/02/03... regardless of the imported README.
-        explicit_title = None
-        try:
-            first_line = p.read_text(encoding="utf-8").splitlines()[0].lstrip("# ").strip()
-            explicit_title = first_line if first_line else None
-        except Exception:
-            explicit_title = None
+    for item in section_items:
+        p = item["path"]
+        explicit_title = item.get("title")
 
+        rel_from_docs = p.relative_to(DOCS).with_suffix("").as_posix()  # sections/chapter-XX/...
         target = f"../{rel_from_docs}"  # ../sections/chapter-XX/...
+
+        # Use explicit titles so the left sidebar shows 01/02/03... regardless of the imported README.
         if explicit_title:
             rels.append(f"{explicit_title} <{target}>")
         else:
@@ -322,8 +317,8 @@ def main():
             continue
         chap_num, chap_title, sections = parsed
 
-        section_pages = [write_section_page(chap_num, sec) for sec in sections]
-        chap_index = write_chapter_index(chap_num, chap_title, section_pages)
+        section_items = [write_section_page(chap_num, sec) for sec in sections]
+        chap_index = write_chapter_index(chap_num, chap_title, section_items)
         chapter_indexes.append(chap_index)
 
     chapter_indexes = sorted(chapter_indexes, key=lambda p: p.parent.name)
