@@ -166,11 +166,11 @@ def write_section_page(chap_num: int, sec: dict):
     url = sec.get("url")
     gh = gh_user_repo(url) if url else None
 
-    # Used for sidebar titles (explicit in toctree), not printed above README
+    # Keep numbered label for LEFT SIDEBAR (toctree explicit titles)
     page_title = f"{sec['no']:02d}. {sec['title']}"
 
     if not gh:
-        # Minimal fallback (no extra banners above)
+        # Minimal fallback (still shows something on the page if README import is not possible)
         lines = [
             f"# {page_title}",
             "",
@@ -182,7 +182,7 @@ def write_section_page(chap_num: int, sec: dict):
         if url:
             lines += [f"{url}", ""]
         out.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
-        return {"path": out, "title": page_title}
+        return out, page_title
 
     user, repo = gh
 
@@ -218,16 +218,16 @@ def write_section_page(chap_num: int, sec: dict):
         if url:
             lines += [f"{url}", ""]
         out.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
-        return {"path": out, "title": page_title}
+        return out, page_title
 
-    # ✅ FIX: Do NOT add an extra title above the imported README.
-    # The page should start from the README.md title onward.
+    # ✅ FIX (ONLY): Do NOT print the sub-chapter title above the imported README.
+    # The right panel should start from the README.md title onward.
     imported = rewrite_images_to_raw(imported, user=user, repo=repo, branch=branch_used or "main")
     out.write_text((imported.strip() + "\n"), encoding="utf-8")
-    return {"path": out, "title": page_title}
+    return out, page_title
 
 
-def write_chapter_index(chap_num: int, chap_title: str, section_items):
+def write_chapter_index(chap_num: int, chap_title: str, section_pages):
     chap_folder = DOCS / f"chapter-{chap_num:02d}"
     chap_folder.mkdir(parents=True, exist_ok=True)
     index = chap_folder / "index.md"
@@ -235,18 +235,12 @@ def write_chapter_index(chap_num: int, chap_title: str, section_items):
     # ✅ toctree paths must be RELATIVE to docs/chapter-XX/index.md
     # Section pages are under docs/sections/... so we need "../sections/..."
     rels = []
-    for item in section_items:
-        p = item["path"]
-        explicit_title = item.get("title")
-
+    for p, page_title in section_pages:
         rel_from_docs = p.relative_to(DOCS).with_suffix("").as_posix()  # sections/chapter-XX/...
         target = f"../{rel_from_docs}"  # ../sections/chapter-XX/...
 
-        # Use explicit titles so the left sidebar shows 01/02/03... regardless of the imported README.
-        if explicit_title:
-            rels.append(f"{explicit_title} <{target}>")
-        else:
-            rels.append(target)
+        # ✅ Keep LEFT SIDEBAR exactly as you like: numbered sub-chapters (01/02/03...)
+        rels.append(f"{page_title} <{target}>")
 
     # Chapter title formatting (blue) is handled via CSS class in docs/_static/custom.css
     chap_heading = f"CHAPTER {chap_num:02d}. {chap_title}"
@@ -317,8 +311,8 @@ def main():
             continue
         chap_num, chap_title, sections = parsed
 
-        section_items = [write_section_page(chap_num, sec) for sec in sections]
-        chap_index = write_chapter_index(chap_num, chap_title, section_items)
+        section_pages = [write_section_page(chap_num, sec) for sec in sections]
+        chap_index = write_chapter_index(chap_num, chap_title, section_pages)
         chapter_indexes.append(chap_index)
 
     chapter_indexes = sorted(chapter_indexes, key=lambda p: p.parent.name)
