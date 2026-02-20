@@ -45,6 +45,9 @@ URL_RE = re.compile(r"\*\*Full resource:\*\*\s*\[(.*?)\]\((.*?)\)")
 MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 HTML_IMG_RE = re.compile(r'(<img\b[^>]*?\bsrc=["\'])([^"\']+)(["\'])', re.I)
 
+# ✅ NEW: detect a leading HTML <h1>...</h1> and convert to Markdown title
+LEADING_H1_HTML_RE = re.compile(r"^\s*<h1\b[^>]*>(.*?)</h1>\s*", re.I | re.S)
+
 
 def slugify(s: str) -> str:
     s = s.strip().lower()
@@ -130,6 +133,33 @@ def rewrite_images_to_raw(body: str, user: str, repo: str, branch: str) -> str:
     body = HTML_IMG_RE.sub(html_repl, body)
 
     return body
+
+
+def ensure_markdown_title_from_leading_html_h1(text: str) -> str:
+    """
+    ✅ FIX:
+    Some READMEs start with an HTML <h1 ...>...</h1> (common in GitHub repos).
+    MyST/Sphinx may not treat that as the document title, so Sphinx falls back
+    to the toctree title (e.g. "02. ...") and shows it above the README title.
+
+    Convert a leading HTML <h1> into a Markdown '# Title' so the right panel starts
+    from the README title onward, while the left sidebar keeps its numbered labels.
+    """
+    m = LEADING_H1_HTML_RE.match(text)
+    if not m:
+        return text
+
+    inner = m.group(1)
+
+    # Strip nested tags inside <h1> (e.g. <sup>, <span>, <br>)
+    inner_txt = re.sub(r"<[^>]+>", "", inner)
+    inner_txt = re.sub(r"\s+", " ", inner_txt).strip()
+
+    # Remove the HTML <h1> block and replace with Markdown H1
+    rest = text[m.end():].lstrip("\n")
+    if inner_txt:
+        return f"# {inner_txt}\n\n{rest}"
+    return rest
 
 
 def parse_chapter(md: str):
@@ -220,9 +250,11 @@ def write_section_page(chap_num: int, sec: dict):
         out.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
         return out, page_title
 
-    # ✅ FIX (ONLY): Do NOT print the sub-chapter title above the imported README.
-    # The right panel should start from the README.md title onward.
+    # ✅ FIX (ONLY): Ensure the imported README begins with a real Markdown H1 title
+    # so Sphinx does NOT show the toctree label (e.g., "02. ...") above the README title.
     imported = rewrite_images_to_raw(imported, user=user, repo=repo, branch=branch_used or "main")
+    imported = ensure_markdown_title_from_leading_html_h1(imported)
+
     out.write_text((imported.strip() + "\n"), encoding="utf-8")
     return out, page_title
 
